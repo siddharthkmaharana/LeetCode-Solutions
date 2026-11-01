@@ -9,8 +9,8 @@ from datetime import datetime, timezone
 # CONFIG
 # ============================================================
 
-NOTION_TOKEN = os.environ["NOTION_TOKEN"]
-NOTION_DATABASE_ID = os.environ["NOTION_DATABASE_ID"]
+NOTION_TOKEN = os.environ.get("NOTION_TOKEN", "").strip()
+NOTION_DATABASE_ID = os.environ.get("NOTION_DATABASE_ID", "").strip()
 
 NOTION_VERSION = "2026-03-11"
 
@@ -55,38 +55,52 @@ def get_leetcode_metadata(slug):
         "titleSlug": slug
     }
 
-    response = requests.post(
-        LEETCODE_GRAPHQL,
-        headers=LEETCODE_HEADERS,
-        json={
-            "query": query,
-            "variables": variables
-        },
-        timeout=30
-    )
+    import time
+    for attempt in range(3):
+        try:
+            response = requests.post(
+                LEETCODE_GRAPHQL,
+                headers=LEETCODE_HEADERS,
+                json={
+                    "query": query,
+                    "variables": variables
+                },
+                timeout=15
+            )
 
-    if not response.ok:
-        print(
-            f"LeetCode API error for {slug}: "
-            f"{response.status_code}"
-        )
-        return None
+            if response.ok:
+                data = response.json()
+                question = (
+                    data
+                    .get("data", {})
+                    .get("question")
+                )
+                if not question:
+                    print(
+                        f"Could not find LeetCode problem: {slug}"
+                    )
+                    return None
+                return question
 
-    data = response.json()
+            if response.status_code == 429:
+                time.sleep(2 * (attempt + 1))
+                continue
 
-    question = (
-        data
-        .get("data", {})
-        .get("question")
-    )
+            print(
+                f"LeetCode API error for {slug}: "
+                f"{response.status_code}"
+            )
+            return None
 
-    if not question:
-        print(
-            f"Could not find LeetCode problem: {slug}"
-        )
-        return None
+        except requests.exceptions.RequestException as e:
+            if attempt == 2:
+                print(
+                    f"LeetCode API request failed for {slug}: {e}"
+                )
+                return None
+            time.sleep(2)
 
-    return question
+    return None
 
 
 # ============================================================
@@ -248,6 +262,8 @@ def detect_language(folder):
 
     extensions = {
         ".py": "Python",
+        ".sh": "Bash",
+        ".bash": "Bash",
         ".cpp": "C++",
         ".cc": "C++",
         ".cxx": "C++",
@@ -288,7 +304,7 @@ def scan_repository():
 
     problems = []
 
-    for folder in root.iterdir():
+    for folder in sorted(root.iterdir()):
 
         if not folder.is_dir():
             continue
@@ -314,7 +330,7 @@ def scan_repository():
         if not metadata:
 
             print(
-                "  ⚠ Could not retrieve metadata"
+                "  [WARN] Could not retrieve metadata"
             )
 
             continue
@@ -347,7 +363,7 @@ def scan_repository():
         problems.append(problem)
 
         print(
-            f"  ✓ {metadata['title']}"
+            f"  [OK] {metadata['title']}"
         )
 
         print(
@@ -437,8 +453,14 @@ def create_notion_problem(
 def main():
 
     print("=" * 60)
-    print("LeetCode → Notion Sync")
+    print("LeetCode -> Notion Sync")
     print("=" * 60)
+
+    if not NOTION_TOKEN or not NOTION_DATABASE_ID:
+        print("\n[INFO] NOTION_TOKEN or NOTION_DATABASE_ID secret is not set.")
+        print("Please configure NOTION_TOKEN and NOTION_DATABASE_ID in GitHub Repository Secrets.")
+        print("Skipping Notion sync gracefully.")
+        return
 
     print(
         "\nResolving Notion data source..."
@@ -485,7 +507,7 @@ def main():
         if url in existing:
 
             print(
-                "  → Already exists"
+                "  -> Already exists"
             )
 
             skipped += 1
@@ -498,7 +520,7 @@ def main():
         )
 
         print(
-            "  ✓ Added to Notion"
+            "  [OK] Added to Notion"
         )
 
         created += 1

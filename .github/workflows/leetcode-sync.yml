@@ -1,0 +1,34 @@
+name: Sync LeetCode to GitHub
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *" # Daily at 00:00 UTC
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check secrets configured
+        id: check_secrets
+        run: |
+          if [ -z "${{ secrets.LEETCODE_SESSION }}" ]; then
+            echo "LEETCODE_SESSION secret is not configured."
+            echo "To enable automated GitHub Actions sync directly from LeetCode, add LEETCODE_SESSION and LEETCODE_CSRF_TOKEN to repository secrets."
+            echo "configured=false" >> $GITHUB_OUTPUT
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Sync LeetCode Solutions
+        if: steps.check_secrets.outputs.configured == 'true'
+        uses: joshcai/leetcode-sync@v1.7
+        with:
+          github-token: ${{ github.token }}
+          leetcode-csrf-token: ${{ secrets.LEETCODE_CSRF_TOKEN }}
+          leetcode-session: ${{ secrets.LEETCODE_SESSION }}
+          destination-folder: ""
+          verbose: true
